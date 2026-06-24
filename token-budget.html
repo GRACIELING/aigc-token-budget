@@ -350,7 +350,7 @@
             </tfoot>
           </table>
         </div>
-        <div class="note" id="tierNote">提示：每月免费次数可直接在表格中编辑，调整后实时重算预算占比。</div>
+        <div class="note" id="tierNote">提示：预算消耗 =（人均次/天 × 天数 − 每月免费次数）× 人数 × 单次成本。只有当「人均次/天 × 天数 &gt; 每月免费次数」时才产生计费。</div>
       </div>
 
       <div class="section-gap"></div>
@@ -406,14 +406,14 @@
 
   // 段位真实数据
   const RANKS = [
-    { name:'实习', icon:'🔰', color:'#64748b', total:217285, week:14172, free:30,   gpd:1 },
-    { name:'青铜', icon:'🥉', color:'#a16207', total:193649, week:20206, free:50,   gpd:2 },
-    { name:'白银', icon:'⚪', color:'#64748b', total:9772,  week:1314,  free:100,  gpd:3 },
-    { name:'黄金', icon:'🥇', color:'#d97706', total:2286,  week:417,   free:200,  gpd:4 },
-    { name:'铂金', icon:'💠', color:'#0891b2', total:577,   week:127,   free:400,  gpd:5 },
-    { name:'星钻', icon:'💎', color:'#6366f1', total:1146,  week:277,   free:600,  gpd:6 },
-    { name:'皇冠', icon:'👑', color:'#db2777', total:90,    week:63,    free:1000, gpd:8 },
-    { name:'王牌', icon:'🏆', color:'#ea580c', total:111,   week:58,    free:1500, gpd:10 },
+    { name:'实习', icon:'🔰', color:'#64748b', total:217285, week:14172, free:20,  gpd:2 },
+    { name:'青铜', icon:'🥉', color:'#a16207', total:193649, week:20206, free:30,  gpd:3 },
+    { name:'白银', icon:'⚪', color:'#64748b', total:9772,  week:1314,  free:45,  gpd:4 },
+    { name:'黄金', icon:'🥇', color:'#d97706', total:2286,  week:417,   free:60,  gpd:5 },
+    { name:'铂金', icon:'💠', color:'#0891b2', total:577,   week:127,   free:80,  gpd:6 },
+    { name:'星钻', icon:'💎', color:'#6366f1', total:1146,  week:277,   free:100, gpd:8 },
+    { name:'皇冠', icon:'👑', color:'#db2777', total:90,    week:63,    free:150, gpd:10 },
+    { name:'王牌', icon:'🏆', color:'#ea580c', total:111,   week:58,    free:200, gpd:12 },
   ];
   let ranks = JSON.parse(JSON.stringify(RANKS));
 
@@ -470,7 +470,7 @@
       document.querySelectorAll('.pill[data-preset]').forEach(x=>x.classList.remove('active'));
       p.classList.add('active');
       const mode = p.dataset.preset;
-      if(mode==='flat'){ ranks.forEach(r=>r.free=100); }
+      if(mode==='flat'){ ranks.forEach(r=>r.free=50); }
       else { RANKS.forEach((r,i)=>ranks[i].free=r.free); }
       renderTiers(); compute();
     });
@@ -551,19 +551,27 @@
       const freeTotal = users * r.free;
       const freeUsed = Math.min(genMonth, freeTotal);
       const billable = Math.max(0, genMonth - freeTotal);
+      const fullyCovered = genMonth>0 && billable===0;  // 免费额度完全覆盖、无计费
       totalGenMonth += genMonth;
       freeCoveredMonth += freeUsed;
       billableMonth += billable;
       sumTotal += r.total; sumWeek += r.week;
-      return { billable, cost: billable*costPerGen };
+      return { billable, cost: billable*costPerGen, genPerUser:(r.gpd||0)*monthDays, free:r.free, fullyCovered };
     });
 
     const budMonth = billableMonth * costPerGen;
     // 填充每段位
+    let coveredCount = 0;
     perRank.forEach((p,i)=>{
       const pct = budMonth>0 ? p.cost/budMonth*100 : 0;
       $('billable'+i).textContent = fmtInt(p.billable);
-      $('cost'+i).textContent = yuan(p.cost);
+      if(p.fullyCovered){
+        coveredCount++;
+        $('cost'+i).innerHTML = `<span style="color:var(--green)">¥0.00</span>`
+          + `<span style="font-size:10px;color:var(--muted-2);margin-left:4px;">免费覆盖</span>`;
+      } else {
+        $('cost'+i).textContent = yuan(p.cost);
+      }
       $('bar'+i).style.width = Math.min(100,pct)+'%';
       $('pct'+i).textContent = fmt(pct,1)+'%';
     });
@@ -594,12 +602,15 @@
     // 找出预算占比最高段位
     let maxIdx=0, maxCost=-1;
     perRank.forEach((p,i)=>{ if(p.cost>maxCost){maxCost=p.cost;maxIdx=i;} });
+    const coverTip = coveredCount>0
+      ? ` <b class="warn">注意：有 ${coveredCount} 个段位「人均次/天 × ${monthDays}天 ≤ 每月免费次数」，计费为 0（标"免费覆盖"）</b>，如需其产生预算请调高人均次/天或调低免费次数。`
+      : '';
     if(maxCost>0){
       const pct = budMonth>0? maxCost/budMonth*100:0;
       $('tierNote').innerHTML = `预算消耗最高的是 <b style="color:${ranks[maxIdx].color}">${ranks[maxIdx].icon} ${ranks[maxIdx].name}</b> 段位，` +
-        `占总预算 <b class="accent">${fmt(pct,1)}%</b>（${yuan(maxCost)}/月）。免费次数可在表格中编辑实时重算。`;
+        `占总预算 <b class="accent">${fmt(pct,1)}%</b>（${yuan(maxCost)}/月）。<b>计费触发条件：人均次/天 × 天数 &gt; 每月免费次数</b>，二者均可在表格中编辑。` + coverTip;
     } else {
-      $('tierNote').innerHTML = `提示：每月免费次数可在表格中直接编辑，调整后实时重算预算占比。`;
+      $('tierNote').innerHTML = `所有段位计费均为 0 —— 因为每个段位「人均次/天 × ${monthDays}天 ≤ 每月免费次数」，免费额度完全覆盖了生成量。请调高「人均次/天」或调低「每月免费次数」让预算产生。`;
     }
 
     // ===== 定价回本 =====
