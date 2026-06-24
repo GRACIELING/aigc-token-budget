@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AIGC Token 预算计算器</title>
+<style>
+  :root {
+    --bg: #f5f5f7;
+    --bg-2: #ffffff;
+    --panel: #ffffff;
+    --panel-2: #f5f5f7;
+    --border: #e3e3e8;
+    --border-light: #d6d6dc;
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --muted-2: #8e8e93;
+    --accent: #0071e3;
+    --accent-soft: rgba(0,113,227,.10);
+    --green: #34c759;
+    --green-soft: rgba(52,199,89,.12);
+    --warn: #ff9f0a;
+    --danger: #ff3b30;
+    --purple: #af52de;
+    --radius: 18px;
+    --shadow: 0 1px 3px rgba(0,0,0,.04), 0 8px 30px rgba(0,0,0,.06);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(1000px 520px at 10% -10%, #eef3fb 0%, transparent 55%),
+      radial-gradient(1100px 560px at 92% -8%, #f3eefb 0%, transparent 55%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 44px 24px 90px; }
+
+  /* header */
+  header { margin-bottom: 34px; }
+  .brand { display:flex; align-items:center; gap:15px; }
+  .logo {
+    width:48px; height:48px; border-radius:14px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    display:flex; align-items:center; justify-content:center; font-size:24px;
+    box-shadow: 0 6px 18px rgba(0,113,227,.25);
+  }
+  header h1 { font-size: 28px; margin: 0; letter-spacing: -.4px; font-weight: 700; }
+  header .sub { color: var(--muted); margin: 3px 0 0; font-size: 14px; letter-spacing:-.1px; }
+
+  /* layout */
+  .cols { display:grid; grid-template-columns: 360px 1fr; gap: 22px; align-items:start; }
+  @media (max-width: 1080px){ .cols { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 22px; }
+  .card h2 {
+    font-size: 13px; margin: 0 0 20px; display:flex; align-items:center; gap:10px;
+    letter-spacing: -.1px; color: var(--text); font-weight: 600;
+  }
+  .card h2 .ic {
+    width:26px; height:26px; border-radius:8px; background: var(--accent);
+    display:flex; align-items:center; justify-content:center; font-size:13px; color:#fff; font-weight:600;
+  }
+
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display:block; font-size: 13px; color: var(--text); margin-bottom: 8px; font-weight:500; letter-spacing:-.1px; }
+  .field .hint { font-size: 11.5px; color: var(--muted-2); margin-top: 6px; letter-spacing:-.1px; }
+  input[type="number"], input[type="text"], select {
+    width: 100%; padding: 11px 14px; background: var(--bg-2);
+    border: 1px solid var(--border); border-radius: 11px; color: var(--text);
+    font-size: 14px; outline: none; transition: all .18s; font-variant-numeric: tabular-nums;
+  }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+  input[readonly] { color: var(--accent); font-weight:600; background: var(--panel-2); }
+  .row { display:flex; gap: 12px; align-items:center; }
+  .row > input { flex:1; }
+
+  .seg { display:flex; gap:6px; background:var(--panel-2); padding:4px; border-radius:12px; }
+  .seg button {
+    flex:1; padding:8px; background:transparent; border:none;
+    border-radius:9px; color:var(--muted); cursor:pointer; font-size:13px; transition:.18s; font-weight:500;
+  }
+  .seg button.active { background:#fff; color:var(--text); box-shadow:0 1px 3px rgba(0,0,0,.12); font-weight:600; }
+  .seg button:hover:not(.active) { color: var(--text); }
+
+  /* KPI */
+  .kpis { display:grid; grid-template-columns: repeat(3,1fr); gap:14px; margin-bottom:22px; }
+  @media (max-width: 720px){ .kpis { grid-template-columns: 1fr; } }
+  .kpi {
+    background: var(--panel-2); border:1px solid var(--border); border-radius:14px; padding:16px 18px;
+    position:relative; overflow:hidden;
+  }
+  .kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--accent); }
+  .kpi.k2::before { background:var(--purple); }
+  .kpi.k3::before { background:var(--green); }
+  .kpi .label { font-size:12px; color:var(--muted); letter-spacing:-.1px; }
+  .kpi .value { font-size:25px; font-weight:700; margin-top:6px; font-variant-numeric: tabular-nums; letter-spacing:-.5px; }
+  .kpi .sub { font-size:11px; color:var(--muted-2); margin-top:3px; }
+  .accent{color:var(--accent);} .green{color:var(--green);} .warn{color:var(--warn);} .danger{color:var(--danger);} .purple{color:var(--purple);}
+
+  /* budget boxes */
+  .budget-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:14px; }
+  @media (max-width: 720px){ .budget-grid { grid-template-columns: 1fr; } }
+  .budget-box {
+    background: linear-gradient(165deg, #f0f6ff 0%, #faf7ff 100%);
+    border:1px solid var(--border); border-radius:16px; padding:22px; text-align:center; position:relative;
+  }
+  .budget-box .t { font-size:13px; color:var(--muted); letter-spacing:-.1px; }
+  .budget-box .n { font-size:32px; font-weight:700; margin-top:8px; letter-spacing:-1px; font-variant-numeric: tabular-nums; }
+  .budget-box .u { font-size:11.5px; color:var(--muted-2); margin-top:2px; }
+
+  /* tier table */
+  .tier-toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+  .tier-toolbar .opts { display:flex; gap:8px; align-items:center; }
+  .pill {
+    padding:7px 14px; background:var(--panel-2); border:1px solid transparent; border-radius:20px;
+    color:var(--muted); cursor:pointer; font-size:12.5px; transition:.18s; font-weight:500;
+  }
+  .pill:hover { color:var(--text); }
+  .pill.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  .ttable-scroll { overflow-x:auto; border-radius:14px; border:1px solid var(--border); }
+  table { width:100%; border-collapse: collapse; font-size: 13px; min-width: 760px; background:#fff; }
+  thead th {
+    padding: 13px 12px; text-align: right; color: var(--muted); font-weight:600; font-size:11px;
+    letter-spacing:-.1px; background: var(--panel-2);
+    position:sticky; top:0; white-space:nowrap; border-bottom:1px solid var(--border);
+  }
+  thead th:first-child, tbody td:first-child { text-align:left; padding-left:18px; }
+  tbody td { padding: 12px; text-align: right; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; white-space:nowrap; }
+  tbody tr:last-child td { border-bottom:none; }
+  tbody tr:hover { background: #fafbfd; }
+  tfoot td { padding:13px 12px; text-align:right; font-weight:700; border-top:2px solid var(--border-light); background:var(--panel-2); font-variant-numeric: tabular-nums; }
+  tfoot td:first-child { text-align:left; padding-left:18px; }
+
+  /* 高亮当前计算口径的列 */
+  th.col-active, td.col-active { background: var(--accent-soft) !important; }
+  th.col-active { color: var(--accent) !important; }
+  .col-tag { display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px; font-size:9.5px; font-weight:700; background:var(--accent); color:#fff; vertical-align:middle; letter-spacing:0; }
+
+  .rank { display:flex; align-items:center; gap:10px; }
+  .rank .badge-rank {
+    width:28px; height:28px; border-radius:9px; display:flex; align-items:center; justify-content:center;
+    font-size:14px; font-weight:700; flex-shrink:0;
+  }
+  td input { padding:7px 10px; font-size:13px; text-align:right; max-width:110px; border-radius:9px; }
+
+  /* mini bar inside cell */
+  .barcell { display:flex; align-items:center; gap:9px; justify-content:flex-end; }
+  .bar-track { flex:1; max-width:90px; height:7px; background:var(--panel-2); border-radius:5px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:5px; background:linear-gradient(90deg,var(--accent),var(--purple)); transition:width .3s; }
+  .pctlabel { min-width:44px; text-align:right; color:var(--muted); font-size:12px; font-weight:500; }
+
+  .note {
+    font-size:13px; color:var(--muted); background:var(--panel-2);
+    border-left:3px solid var(--accent); padding:13px 15px; border-radius:10px; margin-top:18px; letter-spacing:-.1px;
+  }
+  .note b { color: var(--text); }
+
+  /* pricing */
+  .price-inputs { display:grid; grid-template-columns: repeat(3,1fr); gap:14px; margin-bottom:22px; }
+  @media (max-width: 720px){ .price-inputs { grid-template-columns: 1fr; } }
+  .split2 { display:grid; grid-template-columns:1fr 1fr; gap:28px; }
+  @media (max-width: 720px){ .split2 { grid-template-columns:1fr; gap:8px; } }
+  .pblock-title { font-size:12.5px; color:var(--text); letter-spacing:-.1px; margin-bottom:12px; font-weight:600; }
+  .pricing-row { display:flex; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .pricing-row span:first-child { color:var(--muted); }
+  .pricing-row span:last-child { font-weight:600; font-variant-numeric: tabular-nums; }
+  .badge { display:inline-block; padding:3px 11px; border-radius:20px; font-size:11px; font-weight:700; }
+  .badge.ok { background:var(--green-soft); color:var(--green); }
+  .badge.no { background:rgba(255,59,48,.12); color:var(--danger); }
+
+  footer { text-align:center; color:var(--muted-2); font-size:12.5px; margin-top:34px; }
+  .section-gap { height: 22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">⚡</div>
+      <div>
+        <h1>AIGC Token 预算计算器</h1>
+        <p class="sub">底层按百万 token 计费 · 表现层按「单次生成」次数 · 按段位拆解预算占用与回本定价</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="cols">
+    <!-- 左栏：参数输入 -->
+    <div>
+      <div class="card">
+        <h2><span class="ic">1</span>底层 Token 模型</h2>
+        <div class="field">
+          <label>Token 单价（元 / 1M tokens）</label>
+          <input type="number" id="unitPrice" value="12" step="0.5" min="0" />
+          <div class="hint">模型按百万 token 计费的成本（输入+输出综合）</div>
+        </div>
+        <div class="field">
+          <label>折扣系数（1 ~ 100%）</label>
+          <div class="row">
+            <input type="number" id="discount" value="100" step="1" min="1" max="100" />
+            <span style="color:var(--muted);font-size:12px;white-space:nowrap;">% × 原价</span>
+          </div>
+          <div class="hint">实际结算价 = 原单价 × 折扣%（100% = 不打折）</div>
+        </div>
+        <div class="field">
+          <label>折后单价</label>
+          <input type="text" id="effPrice" readonly />
+        </div>
+        <div class="field">
+          <label>单次生成消耗 token 数</label>
+          <input type="number" id="tokensPerGen" value="2500" step="100" min="0" />
+          <div class="hint">一次「生成」平均消耗 token（prompt + 补全）</div>
+        </div>
+        <div class="field">
+          <label>单次成本</label>
+          <input type="text" id="costPerGen" readonly />
+          <div class="hint">= 折后单价 ÷ 1,000,000 × 单次 token 数</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><span class="ic">2</span>用量假设</h2>
+        <div class="field">
+          <label>批量设置「人均每天生成次数」</label>
+          <div class="row">
+            <input type="number" id="bulkGpd" value="3" step="0.5" min="0" />
+            <button class="pill" id="applyBulk" style="white-space:nowrap;">应用到全部段位</button>
+          </div>
+          <div class="hint">各段位可在右侧表格「人均次/天」列单独微调，无需全部拉平均</div>
+        </div>
+        <div class="field">
+          <label>统计口径（用哪列人数算）</label>
+          <div class="seg" id="baseSeg">
+            <button data-base="week" class="active">周活人数</button>
+            <button data-base="total">当前段位人数</button>
+          </div>
+          <div class="hint">当前生效的口径列会在右侧表格中<b style="color:var(--accent)">高亮标注</b>，预算建议用「周活人数」更贴近真实消耗</div>
+        </div>
+        <div class="field">
+          <label>计费周期天数</label>
+          <div class="seg" id="monthDaysSeg">
+            <button data-d="30" class="active">30 天</button>
+            <button data-d="31">31 天</button>
+            <button data-d="28">28 天</button>
+          </div>
+        </div>
+        <div class="note">免费额度从用量中扣除，仅超出部分产生实际成本。</div>
+      </div>
+    </div>
+
+    <!-- 右栏：结果 -->
+    <div>
+      <!-- KPI + 预算 -->
+      <div class="card">
+        <h2><span class="ic">3</span>预算总览</h2>
+        <div class="kpis">
+          <div class="kpi">
+            <div class="label">单次生成成本</div>
+            <div class="value accent" id="kpiCost">—</div>
+            <div class="sub">百万 token 折后折算</div>
+          </div>
+          <div class="kpi k2">
+            <div class="label" id="kpiGenLabel">月生成次数（周活口径）</div>
+            <div class="value purple" id="kpiGenMonth">—</div>
+            <div class="sub">活跃人数 × 人均 × 天数</div>
+          </div>
+          <div class="kpi k3">
+            <div class="label">免费额度覆盖次数</div>
+            <div class="value green" id="kpiFree">—</div>
+            <div class="sub">不产生付费成本</div>
+          </div>
+        </div>
+        <div class="budget-grid">
+          <div class="budget-box"><div class="t">每日预算</div><div class="n accent" id="budDay">—</div><div class="u">元 / 天</div></div>
+          <div class="budget-box"><div class="t">每周预算</div><div class="n accent" id="budWeek">—</div><div class="u">元 / 周</div></div>
+          <div class="budget-box"><div class="t">每月预算</div><div class="n accent" id="budMonth">—</div><div class="u">元 / 月</div></div>
+        </div>
+        <div class="note" id="budgetNote">—</div>
+      </div>
+
+      <div class="section-gap"></div>
+
+      <!-- 段位明细 -->
+      <div class="card">
+        <h2><span class="ic">4</span>各段位预算占用明细</h2>
+        <div class="tier-toolbar">
+          <div class="opts">
+            <span style="color:var(--muted);font-size:12px;">每月免费次数预设：</span>
+            <span class="pill" data-preset="flat">统一额度</span>
+            <span class="pill active" data-preset="grade">按段位递增</span>
+          </div>
+        </div>
+        <div class="ttable-scroll">
+          <table id="tierTable">
+            <thead>
+              <tr>
+                <th>段位</th>
+                <th id="thTotal">当前段位人数</th>
+                <th id="thWeek">周活人数</th>
+                <th>人均次/天</th>
+                <th>每月免费次数</th>
+                <th>月计费次数</th>
+                <th>月成本 (元)</th>
+                <th>占总预算</th>
+              </tr>
+            </thead>
+            <tbody id="tierBody"></tbody>
+            <tfoot>
+              <tr>
+                <td>合计</td>
+                <td id="sumTotal" class="cellTotal">—</td>
+                <td id="sumWeek" class="cellWeek">—</td>
+                <td>—</td>
+                <td>—</td>
+                <td id="sumBillable">—</td>
+                <td id="sumCost">—</td>
+                <td>100%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <div class="note" id="tierNote">提示：每月免费次数可直接在表格中编辑，调整后实时重算预算占比。</div>
+      </div>
+
+      <div class="section-gap"></div>
+
+      <!-- 定价回本 -->
+      <div class="card">
+        <h2><span class="ic">5</span>次数付费定价 & 回本分析</h2>
+        <div class="price-inputs">
+          <div class="field" style="margin:0;">
+            <label>单次售价（元 / 次）</label>
+            <input type="number" id="sellPrice" value="0.5" step="0.01" min="0" />
+          </div>
+          <div class="field" style="margin:0;">
+            <label>打包：每包次数</label>
+            <input type="number" id="packQty" value="100" step="10" min="1" />
+          </div>
+          <div class="field" style="margin:0;">
+            <label>打包价（元 / 包）</label>
+            <input type="number" id="packPrice" value="29.9" step="0.1" min="0" />
+          </div>
+        </div>
+        <div class="split2">
+          <div>
+            <div class="pblock-title">单次售卖</div>
+            <div class="pricing-row"><span>单次成本</span><span id="prCost">—</span></div>
+            <div class="pricing-row"><span>单次售价</span><span id="prSell">—</span></div>
+            <div class="pricing-row"><span>单次毛利</span><span id="prMargin">—</span></div>
+            <div class="pricing-row"><span>毛利率</span><span id="prRate">—</span></div>
+            <div class="pricing-row"><span>是否回本</span><span id="prOk">—</span></div>
+          </div>
+          <div>
+            <div class="pblock-title">打包售卖</div>
+            <div class="pricing-row"><span>打包单次实付</span><span id="pkUnit">—</span></div>
+            <div class="pricing-row"><span>单次成本</span><span id="pkCost">—</span></div>
+            <div class="pricing-row"><span>单包毛利</span><span id="pkMargin">—</span></div>
+            <div class="pricing-row"><span>打包毛利率</span><span id="pkRate">—</span></div>
+            <div class="pricing-row"><span>是否回本</span><span id="pkOk">—</span></div>
+          </div>
+        </div>
+        <div class="note" id="breakevenNote">—</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>所有计算在本地浏览器完成 · 修改任意输入即时刷新</footer>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const fmt = (n, d=2) => isFinite(n) ? Number(n).toLocaleString('zh-CN',{minimumFractionDigits:d,maximumFractionDigits:d}) : '—';
+  const fmtInt = n => isFinite(n) ? Math.round(n).toLocaleString('zh-CN') : '—';
+  const yuan = (n,d=2) => '¥' + fmt(n,d);
+
+  // 段位真实数据
+  const RANKS = [
+    { name:'实习', icon:'🔰', color:'#64748b', total:217285, week:14172, free:30,   gpd:1 },
+    { name:'青铜', icon:'🥉', color:'#a16207', total:193649, week:20206, free:50,   gpd:2 },
+    { name:'白银', icon:'⚪', color:'#64748b', total:9772,  week:1314,  free:100,  gpd:3 },
+    { name:'黄金', icon:'🥇', color:'#d97706', total:2286,  week:417,   free:200,  gpd:4 },
+    { name:'铂金', icon:'💠', color:'#0891b2', total:577,   week:127,   free:400,  gpd:5 },
+    { name:'星钻', icon:'💎', color:'#6366f1', total:1146,  week:277,   free:600,  gpd:6 },
+    { name:'皇冠', icon:'👑', color:'#db2777', total:90,    week:63,    free:1000, gpd:8 },
+    { name:'王牌', icon:'🏆', color:'#ea580c', total:111,   week:58,    free:1500, gpd:10 },
+  ];
+  let ranks = JSON.parse(JSON.stringify(RANKS));
+
+  let baseMode = 'week';   // week | total
+  let monthDays = 30;
+
+  $('baseSeg').addEventListener('click', e=>{
+    if(e.target.tagName!=='BUTTON') return;
+    [...$('baseSeg').children].forEach(b=>b.classList.remove('active'));
+    e.target.classList.add('active');
+    baseMode = e.target.dataset.base;
+    compute();
+  });
+  $('monthDaysSeg').addEventListener('click', e=>{
+    if(e.target.tagName!=='BUTTON') return;
+    [...$('monthDaysSeg').children].forEach(b=>b.classList.remove('active'));
+    e.target.classList.add('active');
+    monthDays = +e.target.dataset.d;
+    compute();
+  });
+
+  // 免费额度预设
+  document.querySelectorAll('.pill[data-preset]').forEach(p=>{
+    p.addEventListener('click', ()=>{
+      document.querySelectorAll('.pill[data-preset]').forEach(x=>x.classList.remove('active'));
+      p.classList.add('active');
+      const mode = p.dataset.preset;
+      if(mode==='flat'){ ranks.forEach(r=>r.free=100); }
+      else { RANKS.forEach((r,i)=>ranks[i].free=r.free); }
+      renderTiers(); compute();
+    });
+  });
+
+  function renderTiers(){
+    const body = $('tierBody');
+    body.innerHTML = '';
+    ranks.forEach((r,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>
+          <div class="rank">
+            <span class="badge-rank" style="background:${r.color}26;color:${r.color};">${r.icon}</span>
+            <span style="font-weight:600;color:var(--text);">${r.name}</span>
+          </div>
+        </td>
+        <td class="cellTotal">${fmtInt(r.total)}</td>
+        <td class="cellWeek">${fmtInt(r.week)}</td>
+        <td><input type="number" data-i="${i}" data-k="gpd" value="${r.gpd}" step="0.5" min="0"></td>
+        <td><input type="number" data-i="${i}" data-k="free" value="${r.free}" step="10" min="0"></td>
+        <td id="billable${i}">—</td>
+        <td id="cost${i}">—</td>
+        <td>
+          <div class="barcell">
+            <div class="bar-track"><div class="bar-fill" id="bar${i}" style="width:0%"></div></div>
+            <span class="pctlabel" id="pct${i}">0%</span>
+          </div>
+        </td>`;
+      body.appendChild(tr);
+    });
+    body.querySelectorAll('input').forEach(inp=>inp.addEventListener('input', e=>{
+      const i=+e.target.dataset.i, k=e.target.dataset.k;
+      ranks[i][k] = parseFloat(e.target.value)||0;
+      compute();
+    }));
+  }
+
+  ['unitPrice','discount','tokensPerGen','sellPrice','packQty','packPrice']
+    .forEach(id=>$(id).addEventListener('input', compute));
+
+  // 批量设置人均次/天
+  $('applyBulk').addEventListener('click', ()=>{
+    const v = parseFloat($('bulkGpd').value)||0;
+    ranks.forEach(r=>r.gpd=v);
+    renderTiers(); compute();
+  });
+
+  function compute(){
+    const unitPrice = +$('unitPrice').value || 0;
+    let discount = +$('discount').value;
+    if(!isFinite(discount) || discount<=0) discount = 100;
+    if(discount>100) discount = 100;
+    const effPrice = unitPrice * discount/100;
+    const tokensPerGen = +$('tokensPerGen').value || 0;
+
+    $('effPrice').value = yuan(effPrice,4) + ' / 1M';
+    const costPerGen = effPrice/1000000 * tokensPerGen;
+    $('costPerGen').value = yuan(costPerGen,5);
+    $('kpiCost').textContent = yuan(costPerGen,5);
+    $('prCost').textContent = yuan(costPerGen,5);
+    $('pkCost').textContent = yuan(costPerGen,5);
+
+    // 高亮当前生效的口径列
+    const isWeek = baseMode==='week';
+    document.querySelectorAll('.cellTotal').forEach(el=>el.classList.toggle('col-active', !isWeek));
+    document.querySelectorAll('.cellWeek').forEach(el=>el.classList.toggle('col-active', isWeek));
+    $('thTotal').classList.toggle('col-active', !isWeek);
+    $('thWeek').classList.toggle('col-active', isWeek);
+    $('thTotal').innerHTML = '当前段位人数' + (!isWeek ? '<span class="col-tag">计算中</span>' : '');
+    $('thWeek').innerHTML  = '周活人数'   + ( isWeek ? '<span class="col-tag">计算中</span>' : '');
+
+    // 逐段位计算（每段位使用各自的人均次/天 r.gpd）
+    let totalGenMonth=0, freeCoveredMonth=0, billableMonth=0, sumTotal=0, sumWeek=0;
+    const perRank = ranks.map((r,i)=>{
+      const users = baseMode==='week' ? r.week : r.total;
+      const genMonth = users * (r.gpd||0) * monthDays;
+      const freeTotal = users * r.free;
+      const freeUsed = Math.min(genMonth, freeTotal);
+      const billable = Math.max(0, genMonth - freeTotal);
+      totalGenMonth += genMonth;
+      freeCoveredMonth += freeUsed;
+      billableMonth += billable;
+      sumTotal += r.total; sumWeek += r.week;
+      return { billable, cost: billable*costPerGen };
+    });
+
+    const budMonth = billableMonth * costPerGen;
+    // 填充每段位
+    perRank.forEach((p,i)=>{
+      const pct = budMonth>0 ? p.cost/budMonth*100 : 0;
+      $('billable'+i).textContent = fmtInt(p.billable);
+      $('cost'+i).textContent = yuan(p.cost);
+      $('bar'+i).style.width = Math.min(100,pct)+'%';
+      $('pct'+i).textContent = fmt(pct,1)+'%';
+    });
+
+    // 合计行
+    $('sumTotal').textContent = fmtInt(sumTotal);
+    $('sumWeek').textContent = fmtInt(sumWeek);
+    $('sumBillable').textContent = fmtInt(billableMonth);
+    $('sumCost').textContent = yuan(budMonth);
+
+    // KPI + 预算
+    $('kpiGenMonth').textContent = fmtInt(totalGenMonth);
+    $('kpiGenLabel').textContent = '月生成次数（' + (isWeek ? '周活' : '全量') + '口径）';
+    $('kpiFree').textContent = fmtInt(freeCoveredMonth);
+    const budDay = budMonth/monthDays, budWeek = budDay*7;
+    $('budMonth').textContent = fmt(budMonth,0);
+    $('budDay').textContent = fmt(budDay,0);
+    $('budWeek').textContent = fmt(budWeek,0);
+
+    const allInMonth = totalGenMonth * costPerGen;
+    const baseLabel = baseMode==='week' ? '周活人数' : '当前段位人数';
+    $('budgetNote').innerHTML =
+      `当前以 <b>${baseLabel}</b> 为口径。免费额度覆盖 <b class="green">${fmtInt(freeCoveredMonth)}</b> 次，` +
+      `实际付费生成 <b class="accent">${fmtInt(billableMonth)}</b> 次。` +
+      `若不设免费额度，月成本上限 <b class="warn">${yuan(allInMonth)}</b>，` +
+      `免费策略每月节省 <b class="green">${yuan(allInMonth-budMonth)}</b>。`;
+
+    // 找出预算占比最高段位
+    let maxIdx=0, maxCost=-1;
+    perRank.forEach((p,i)=>{ if(p.cost>maxCost){maxCost=p.cost;maxIdx=i;} });
+    if(maxCost>0){
+      const pct = budMonth>0? maxCost/budMonth*100:0;
+      $('tierNote').innerHTML = `预算消耗最高的是 <b style="color:${ranks[maxIdx].color}">${ranks[maxIdx].icon} ${ranks[maxIdx].name}</b> 段位，` +
+        `占总预算 <b class="accent">${fmt(pct,1)}%</b>（${yuan(maxCost)}/月）。免费次数可在表格中编辑实时重算。`;
+    } else {
+      $('tierNote').innerHTML = `提示：每月免费次数可在表格中直接编辑，调整后实时重算预算占比。`;
+    }
+
+    // ===== 定价回本 =====
+    const sellPrice = +$('sellPrice').value || 0;
+    const packQty = +$('packQty').value || 1;
+    const packPrice = +$('packPrice').value || 0;
+
+    const margin = sellPrice - costPerGen;
+    const rate = sellPrice>0 ? margin/sellPrice*100 : 0;
+    $('prSell').textContent = yuan(sellPrice,4);
+    $('prMargin').innerHTML = `<span class="${margin>=0?'green':'danger'}">${yuan(margin,5)}</span>`;
+    $('prRate').innerHTML = `<span class="${rate>=0?'green':'danger'}">${fmt(rate,1)}%</span>`;
+    $('prOk').innerHTML = margin>=0?`<span class="badge ok">回本 ✓</span>`:`<span class="badge no">亏损 ✗</span>`;
+
+    const pkUnit = packPrice/packQty;
+    const pkCostTotal = costPerGen*packQty;
+    const pkMargin = packPrice - pkCostTotal;
+    const pkRate = packPrice>0 ? pkMargin/packPrice*100 : 0;
+    $('pkUnit').textContent = yuan(pkUnit,4);
+    $('pkMargin').innerHTML = `<span class="${pkMargin>=0?'green':'danger'}">${yuan(pkMargin)}</span>`;
+    $('pkRate').innerHTML = `<span class="${pkRate>=0?'green':'danger'}">${fmt(pkRate,1)}%</span>`;
+    $('pkOk').innerHTML = pkMargin>=0?`<span class="badge ok">回本 ✓</span>`:`<span class="badge no">亏损 ✗</span>`;
+
+    let be='';
+    if(costPerGen>0){
+      const sugg30 = costPerGen/(1-0.30), sugg50 = costPerGen/(1-0.50);
+      be = `保本价（毛利 0）≥ <b class="warn">${yuan(costPerGen,5)}</b>/次；` +
+           `建议定价：毛利 30% → <b class="accent">${yuan(sugg30,4)}</b>，毛利 50% → <b class="green">${yuan(sugg50,4)}</b>。`;
+      be += margin>=0 ? ` 当前单次售价毛利为正，每多售 1 次即增利，规模化可放大利润。`
+                      : ` 当前单次售价低于成本，需上调售价或降低单次 token 消耗才能回本。`;
+    } else { be = '请先填写有效的 token 单价与单次消耗。'; }
+    $('breakevenNote').innerHTML = be;
+  }
+
+  renderTiers();
+  compute();
+</script>
+</body>
+</html>
