@@ -254,7 +254,7 @@
         <div class="field">
           <label>批量设置「人均每天生成次数」</label>
           <div class="row">
-            <input type="number" id="bulkGpd" value="3" step="0.5" min="0" />
+            <input type="number" id="bulkGpd" value="3" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'" />
             <button class="pill" id="applyBulk" style="white-space:nowrap;">应用到全部段位</button>
           </div>
           <div class="hint">各段位可在右侧表格「人均次/天」列单独微调，无需全部拉平均</div>
@@ -490,8 +490,8 @@
         </td>
         <td class="cellTotal">${fmtInt(r.total)}</td>
         <td class="cellWeek">${fmtInt(r.week)}</td>
-        <td><input type="number" data-i="${i}" data-k="gpd" value="${r.gpd}" step="0.5" min="0"></td>
-        <td><input type="number" data-i="${i}" data-k="free" value="${r.free}" step="10" min="0"></td>
+        <td><input type="number" data-i="${i}" data-k="gpd" value="${r.gpd}" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'"></td>
+        <td><input type="number" data-i="${i}" data-k="free" value="${r.free}" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'"></td>
         <td id="billable${i}">—</td>
         <td id="cost${i}">—</td>
         <td>
@@ -502,11 +502,21 @@
         </td>`;
       body.appendChild(tr);
     });
-    body.querySelectorAll('input').forEach(inp=>inp.addEventListener('input', e=>{
-      const i=+e.target.dataset.i, k=e.target.dataset.k;
-      ranks[i][k] = parseFloat(e.target.value)||0;
-      compute();
-    }));
+    body.querySelectorAll('input').forEach(inp=>{
+      // 次数（人均次/天、每月免费次数）只允许正整数
+      inp.addEventListener('input', e=>{
+        const i=+e.target.dataset.i, k=e.target.dataset.k;
+        let v = Math.floor(Math.abs(parseFloat(e.target.value)||0));
+        if(v<1) v=1;
+        ranks[i][k] = v;
+        compute();
+      });
+      // 失焦时把输入框显示值也规整为正整数
+      inp.addEventListener('blur', e=>{
+        const i=+e.target.dataset.i, k=e.target.dataset.k;
+        e.target.value = ranks[i][k];
+      });
+    });
   }
 
   ['unitPrice','discount','tokensPerGen','sellPrice','packQty','packPrice']
@@ -514,7 +524,9 @@
 
   // 批量设置人均次/天
   $('applyBulk').addEventListener('click', ()=>{
-    const v = parseFloat($('bulkGpd').value)||0;
+    let v = Math.floor(Math.abs(parseFloat($('bulkGpd').value)||0));
+    if(v<1) v=1;
+    $('bulkGpd').value = v;
     ranks.forEach(r=>r.gpd=v);
     renderTiers(); compute();
   });
