@@ -204,9 +204,26 @@
       <div class="card">
         <h2><span class="ic">1</span>底层 Token 模型</h2>
         <div class="field">
+          <label>模型</label>
+          <div class="seg" id="modelSeg">
+            <button data-model="pro" class="active">DS-V4 pro</button>
+            <button data-model="flash">DS-V4 flash</button>
+          </div>
+          <div class="hint">两类模型对应不同的 Token 单价档位</div>
+        </div>
+        <div class="field">
+          <label>报价类型</label>
+          <div class="seg" id="priceTierSeg">
+            <button data-tier="origin" class="active">原厂价</button>
+            <button data-tier="sla">内领-有 SLA</button>
+            <button data-tier="nosla">内领-无 SLA</button>
+          </div>
+          <div class="hint">选择后自动代入对应 Token 单价（原厂价 / 有 SLA 折扣 / 无 SLA 折扣）</div>
+        </div>
+        <div class="field">
           <label>Token 单价（元 / 1M tokens）</label>
-          <input type="number" id="unitPrice" value="12" step="0.5" min="0" />
-          <div class="hint">模型按百万 token 计费的成本（输入+输出综合）</div>
+          <input type="number" id="unitPrice" value="0.2" step="0.01" min="0" />
+          <div class="hint">随上方「模型 + 报价类型」自动填充，也可手动改写</div>
         </div>
         <div class="field">
           <label>折扣系数（1 ~ 100%）</label>
@@ -214,7 +231,7 @@
             <input type="number" id="discount" value="100" step="1" min="1" max="100" />
             <span style="color:var(--muted);font-size:12px;white-space:nowrap;">% × 原价</span>
           </div>
-          <div class="hint">实际结算价 = 原单价 × 折扣%（100% = 不打折）</div>
+          <div class="hint">报价已含档位折扣；如需在此基础上再调整可改此值（100% = 用上方报价原值）</div>
         </div>
         <div class="field">
           <label>折后单价</label>
@@ -400,8 +417,37 @@
   ];
   let ranks = JSON.parse(JSON.stringify(RANKS));
 
+  // 两类模型 × 三种报价（元 / 1M tokens）
+  const PRICING = {
+    pro:   { label:'DS-V4 pro',   origin:0.2,   sla:0.14,  nosla:0.06 },
+    flash: { label:'DS-V4 flash', origin:0.067, sla:0.047, nosla:0.02 },
+  };
+  let curModel = 'pro';     // pro | flash
+  let curTier  = 'origin';  // origin | sla | nosla
+
   let baseMode = 'week';   // week | total
   let monthDays = 30;
+
+  // 模型 / 报价类型 切换 → 自动代入 Token 单价
+  function applyPricing(){
+    const v = PRICING[curModel][curTier];
+    $('unitPrice').value = v;
+    compute();
+  }
+  $('modelSeg').addEventListener('click', e=>{
+    if(e.target.tagName!=='BUTTON') return;
+    [...$('modelSeg').children].forEach(b=>b.classList.remove('active'));
+    e.target.classList.add('active');
+    curModel = e.target.dataset.model;
+    applyPricing();
+  });
+  $('priceTierSeg').addEventListener('click', e=>{
+    if(e.target.tagName!=='BUTTON') return;
+    [...$('priceTierSeg').children].forEach(b=>b.classList.remove('active'));
+    e.target.classList.add('active');
+    curTier = e.target.dataset.tier;
+    applyPricing();
+  });
 
   $('baseSeg').addEventListener('click', e=>{
     if(e.target.tagName!=='BUTTON') return;
