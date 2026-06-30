@@ -164,6 +164,24 @@
   tfoot td { padding:13px 12px; text-align:right; font-weight:700; border-top:2px solid var(--border-light); background:var(--panel-2); font-variant-numeric: tabular-nums; }
   tfoot td:first-child { text-align:left; padding-left:18px; }
 
+  /* 列头计算方式说明 tooltip */
+  .th-tip { position:relative; display:inline-flex; align-items:center; gap:4px; }
+  .th-tip .tip-ic {
+    display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px;
+    border-radius:50%; border:1px solid var(--muted-2); color:var(--muted-2);
+    font-size:9px; font-weight:700; cursor:help; line-height:1;
+  }
+  .th-tip .tip-pop {
+    visibility:hidden; opacity:0; position:absolute; z-index:30; top:130%; right:0;
+    width:230px; padding:10px 12px; background:#1c2433; color:#eef2f8;
+    border-radius:10px; font-size:11.5px; font-weight:400; line-height:1.6; text-align:left;
+    letter-spacing:0; box-shadow:0 8px 24px rgba(0,0,0,.22); transition:opacity .15s, visibility .15s;
+    white-space:normal; text-transform:none; pointer-events:none;
+  }
+  .th-tip .tip-pop b { color:#fff; }
+  .th-tip .tip-pop .f { color:#9ad7ff; font-variant-numeric:tabular-nums; }
+  .th-tip:hover .tip-pop { visibility:visible; opacity:1; }
+
   /* 高亮当前计算口径的列 */
   th.col-active, td.col-active { background: var(--accent-soft) !important; }
   th.col-active { color: var(--accent) !important; }
@@ -357,10 +375,10 @@
                 <th id="thWeek">周活人数</th>
                 <th>人均次/天</th>
                 <th>每月免费次数</th>
-                <th>免费发放次数</th>
-                <th>真实使用次数</th>
-                <th>付费次数</th>
-                <th>月成本 (元)</th>
+                <th><span class="th-tip">免费发放次数<span class="tip-ic">i</span><span class="tip-pop"><b>免费发放次数</b><br>= 人数 × 每月免费次数<br><span class="f">官方每月一定发放的免费额度，无论是否用完都视为必然占用的成本。</span></span></span></th>
+                <th><span class="th-tip">真实使用次数<span class="tip-ic">i</span><span class="tip-pop"><b>真实使用次数</b><br>= 人数 × 人均次/天 × 计费天数<br><span class="f">用户当月实际生成（消耗）的总次数。</span></span></span></th>
+                <th><span class="th-tip">付费次数<span class="tip-ic">i</span><span class="tip-pop"><b>付费次数</b><br>= max(0, 真实使用次数 − 免费发放次数)<br><span class="f">使用量超出免费额度的部分，由用户付费；未超出则为 0。</span></span></span></th>
+                <th><span class="th-tip">月成本 (元)<span class="tip-ic">i</span><span class="tip-pop"><b>月成本</b><br>= 免费成本 + 付费成本<br>= (免费发放次数 + 付费次数) × 单次成本<br><span class="f">免费发放即官方买单，因此免费部分也计入成本。</span></span></span></th>
                 <th>占总预算</th>
               </tr>
             </thead>
