@@ -84,6 +84,9 @@
   }
   input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
   input[readonly] { color: var(--accent); font-weight:600; background: var(--panel-2); }
+  /* 免费次数过大、导致该段位计费为 0 时的行内警示 */
+  input.free-over { border-color: var(--warn); background: #fff7ed; }
+  input.free-over:focus { box-shadow: 0 0 0 4px #fdba7440; }
   .row { display:flex; gap: 12px; align-items:center; }
   .row > input { flex:1; }
 
@@ -254,7 +257,7 @@
         <div class="field">
           <label>批量设置「人均每天生成次数」</label>
           <div class="row">
-            <input type="number" id="bulkGpd" value="3" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'" />
+            <input type="number" inputmode="numeric" id="bulkGpd" value="3" step="1" min="1" />
             <button class="pill" id="applyBulk" style="white-space:nowrap;">应用到全部段位</button>
           </div>
           <div class="hint">各段位可在右侧表格「人均次/天」列单独微调，无需全部拉平均</div>
@@ -490,8 +493,8 @@
         </td>
         <td class="cellTotal">${fmtInt(r.total)}</td>
         <td class="cellWeek">${fmtInt(r.week)}</td>
-        <td><input type="number" data-i="${i}" data-k="gpd" value="${r.gpd}" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'"></td>
-        <td><input type="number" data-i="${i}" data-k="free" value="${r.free}" step="1" min="1" onkeydown="return event.key!=='.'&&event.key!=='e'&&event.key!=='-'"></td>
+        <td><input type="number" inputmode="numeric" data-i="${i}" data-k="gpd" value="${r.gpd}" step="1" min="1"></td>
+        <td><input type="number" inputmode="numeric" data-i="${i}" data-k="free" value="${r.free}" step="1" min="1"></td>
         <td id="billable${i}">—</td>
         <td id="cost${i}">—</td>
         <td>
@@ -503,18 +506,25 @@
       body.appendChild(tr);
     });
     body.querySelectorAll('input').forEach(inp=>{
-      // 次数（人均次/天、每月免费次数）只允许正整数
+      // 次数（人均次/天、每月免费次数）只允许正整数，支持任意位数（如 120、500、9999）
       inp.addEventListener('input', e=>{
         const i=+e.target.dataset.i, k=e.target.dataset.k;
-        let v = Math.floor(Math.abs(parseFloat(e.target.value)||0));
-        if(v<1) v=1;
+        const raw = e.target.value;
+        // 输入中途允许空串（用户正在删改），此时暂存为空，按 1 参与计算但不强改显示
+        if(raw==='' ){ ranks[i][k] = ''; compute(); return; }
+        let v = Math.floor(Math.abs(parseFloat(raw)));
+        if(!isFinite(v) || v<1) v = 1;
         ranks[i][k] = v;
         compute();
       });
-      // 失焦时把输入框显示值也规整为正整数
+      // 失焦时把数据与显示统一规整为有效正整数（兜底空值/中间态）
       inp.addEventListener('blur', e=>{
         const i=+e.target.dataset.i, k=e.target.dataset.k;
-        e.target.value = ranks[i][k];
+        let v = Math.floor(Math.abs(parseFloat(ranks[i][k])));
+        if(!isFinite(v) || v<1) v = 1;
+        ranks[i][k] = v;
+        e.target.value = v;
+        compute();
       });
     });
   }
@@ -586,6 +596,9 @@
       }
       $('bar'+i).style.width = Math.min(100,pct)+'%';
       $('pct'+i).textContent = fmt(pct,1)+'%';
+      // 免费次数过大导致计费为 0 时，高亮该行「每月免费次数」输入框作为提醒
+      const freeInp = document.querySelector(`input[data-i="${i}"][data-k="free"]`);
+      if(freeInp) freeInp.classList.toggle('free-over', !!p.fullyCovered);
     });
 
     // 合计行
