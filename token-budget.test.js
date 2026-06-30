@@ -1,8 +1,13 @@
 /**
  * token-budget 计费逻辑单元测试
  *
- * 目的：验证「每月免费次数」输入任意大小（含 >200）时，月计费次数与成本的计算
- *       数学正确——当免费额度覆盖全部生成量时计费为 0 是模型的正确结果，并非 BUG。
+ * 业务模型（清晰、无歧义）：
+ *   1. 免费发放次数 freeGrant = 人数 × 每月免费次数（官方一定发放，必然占用成本）
+ *   2. 真实使用次数 usedMonth = 人数 × 人均次/天 × 天数
+ *   3. 免费成本 freeCost = 免费发放次数 × 单次成本（一定产生的预估预算）
+ *   4. 付费次数 paidQty = max(0, 真实使用 − 免费发放)
+ *   5. 付费成本 paidCost = 付费次数 × 单次成本
+ *   6. 总成本 totalCost = 免费成本 + 付费成本
  *
  * 运行：node token-budget.test.js
  *
@@ -41,97 +46,130 @@ function approx(a, b, eps = 1e-9) {
 
 console.log('运行 token-budget 计费逻辑测试...\n');
 
-// ========== 用户反馈的核心场景：free 输入 200 ==========
-test('free=200 且 gpd×天数 < free 时：计费为 0（免费完全覆盖，正确结果而非异常）', () => {
-  // 1000 人，人均 3 次/天，30 天 → 月生成 90 次；免费 200 次 > 90 → 全覆盖
-  const r = calcRank(1000, 3, 200, 30, 0.0005);
-  assert.strictEqual(r.genMonth, 1000 * 3 * 30, '月生成次数应为 90000');
-  assert.strictEqual(r.billable, 0, 'free 覆盖全部生成时计费应为 0');
-  assert.strictEqual(r.cost, 0, '计费为 0 时成本应为 0');
-  assert.strictEqual(r.fullyCovered, true, '应标记为免费完全覆盖');
+// ========== 模型四要素：免费发放 / 真实使用 / 付费 / 成本 ==========
+test('基本：免费发放次数 = 人数 × 每月免费次数', () => {
+  const r = calcRank(1000, 3, 50, 30, 0.001);
+  assert.strictEqual(r.freeGrant, 1000 * 50, '免费发放次数应为 50000');
 });
 
-test('free=200 但 gpd×天数 > 200 时：仍正常产生计费（不会异常归零）', () => {
-  // 人均 12 次/天，30 天 → 月生成 360 次 > 免费 200 次 → 计费 160 次
-  const users = 58, gpd = 12, free = 200, days = 30, cpg = 0.001;
-  const r = calcRank(users, gpd, free, days, cpg);
-  const expectBillable = users * gpd * days - users * free; // 58*360 - 58*200 = 58*160
-  assert.strictEqual(r.billable, expectBillable, '计费次数应为 (生成-免费)');
-  assert.ok(approx(r.cost, expectBillable * cpg), '成本应为计费次数×单次成本');
-  assert.strictEqual(r.fullyCovered, false, '有计费时不应标记为完全覆盖');
+test('基本：真实使用次数 = 人数 × 人均次/天 × 天数', () => {
+  const r = calcRank(1000, 3, 50, 30, 0.001);
+  assert.strictEqual(r.usedMonth, 1000 * 3 * 30, '真实使用次数应为 90000');
 });
 
-test('free 远超 200（如 9999）：计费稳定为 0，不出现 NaN/负数', () => {
+test('基本：付费次数 = 真实使用 − 免费发放', () => {
+  // 真实使用 90000，免费发放 50000 → 付费 40000
+  const r = calcRank(1000, 3, 50, 30, 0.001);
+  assert.strictEqual(r.paidQty, 90000 - 50000, '付费次数应为 40000');
+});
+
+test('基本：免费发放也算成本（官方买单），总成本 = 免费成本 + 付费成本', () => {
+  const cpg = 0.001;
+  const r = calcRank(1000, 3, 50, 30, cpg);
+  assert.ok(approx(r.freeCost, 50000 * cpg), '免费成本 = 免费发放 × 单次成本');
+  assert.ok(approx(r.paidCost, 40000 * cpg), '付费成本 = 付费次数 × 单次成本');
+  assert.ok(approx(r.totalCost, (50000 + 40000) * cpg), '总成本 = 免费成本 + 付费成本');
+});
+
+// ========== 用户关注的场景：免费次数较大（>200）==========
+test('免费次数=200 且 真实使用 < 免费发放：付费=0，但免费成本仍存在（不会归零）', () => {
+  // 真实使用 1000×3×30=90000；免费发放 1000×200=200000 > 使用 → 付费 0
+  const cpg = 0.001;
+  const r = calcRank(1000, 3, 200, 30, cpg);
+  assert.strictEqual(r.usedMonth, 90000, '真实使用 90000');
+  assert.strictEqual(r.freeGrant, 200000, '免费发放 200000');
+  assert.strictEqual(r.paidQty, 0, '使用未超免费额度，付费为 0');
+  assert.ok(approx(r.freeCost, 200000 * cpg), '免费成本仍按免费发放计（必然占用）');
+  assert.ok(approx(r.totalCost, 200000 * cpg), '总成本 = 免费成本（付费为 0 时）');
+  assert.ok(r.totalCost > 0, '免费发放产生成本，总成本不应为 0');
+});
+
+test('免费次数=200 且 真实使用 > 免费发放：付费正常产生', () => {
+  // 人均 12 次/天，30 天 → 真实使用 360/人；免费 200/人 → 付费 160/人
+  const users = 58, cpg = 0.001;
+  const r = calcRank(users, 12, 200, 30, cpg);
+  assert.strictEqual(r.usedMonth, users * 360, '真实使用');
+  assert.strictEqual(r.freeGrant, users * 200, '免费发放');
+  assert.strictEqual(r.paidQty, users * 160, '付费次数 = 使用 − 免费');
+  assert.ok(approx(r.totalCost, (users * 200 + users * 160) * cpg), '总成本含免费与付费两部分');
+});
+
+test('免费次数极大（9999）：付费为 0，免费成本巨大但稳定，无 NaN/负数', () => {
   const r = calcRank(500, 5, 9999, 31, 0.0008);
-  assert.strictEqual(r.billable, 0, '超大免费额度计费应为 0');
-  assert.strictEqual(r.cost, 0, '成本应为 0');
-  assert.ok(isFinite(r.billable) && isFinite(r.cost), '结果应为有限数');
-  assert.ok(r.billable >= 0, '计费次数不应为负');
+  assert.strictEqual(r.paidQty, 0, '使用远小于免费 → 付费 0');
+  assert.ok(r.freeCost > 0, '免费成本应为正');
+  assert.ok(isFinite(r.totalCost) && r.totalCost >= 0, '总成本应为有限非负数');
 });
 
 // ========== 边界场景 ==========
-test('边界：gpd×天数 恰好等于 free → 计费恰好为 0', () => {
-  // gpd=10, days=20 → 人均 200；free=200 → 恰好覆盖
-  const r = calcRank(100, 10, 200, 20, 0.001);
-  assert.strictEqual(r.billable, 0, '恰好覆盖时计费为 0');
-  assert.strictEqual(r.fullyCovered, true, '应标记完全覆盖');
+test('边界：真实使用 恰好等于 免费发放 → 付费为 0，成本=免费成本', () => {
+  // gpd=10, days=20 → 人均使用 200；free=200 → 恰好相等
+  const cpg = 0.001;
+  const r = calcRank(100, 10, 200, 20, cpg);
+  assert.strictEqual(r.paidQty, 0, '恰好相等时付费为 0');
+  assert.ok(approx(r.totalCost, 100 * 200 * cpg), '总成本=免费成本');
 });
 
-test('边界：free 比生成少 1（人均）→ 产生少量计费', () => {
-  // gpd=10, days=20 → 人均 200；free=199 → 人均计费 1 次
+test('边界：真实使用 比 免费发放 多一点 → 产生少量付费', () => {
+  // gpd=10, days=20 → 人均 200；free=199 → 人均付费 1
   const r = calcRank(100, 10, 199, 20, 0.001);
-  assert.strictEqual(r.billable, 100 * 1, '应产生 100 次计费');
-  assert.strictEqual(r.fullyCovered, false, '不应标记完全覆盖');
+  assert.strictEqual(r.paidQty, 100 * 1, '应产生 100 次付费');
 });
 
 // ========== 零值 / 异常输入兜底 ==========
-test('free=0：全部生成都计费', () => {
-  const r = calcRank(200, 4, 0, 30, 0.0005);
-  assert.strictEqual(r.billable, 200 * 4 * 30, 'free=0 时计费=全部生成');
+test('free=0：无免费发放，全部使用都付费，总成本=付费成本', () => {
+  const cpg = 0.0005;
+  const r = calcRank(200, 4, 0, 30, cpg);
+  assert.strictEqual(r.freeGrant, 0, '无免费发放');
+  assert.strictEqual(r.paidQty, 200 * 4 * 30, '全部使用都付费');
+  assert.ok(approx(r.totalCost, 200 * 4 * 30 * cpg), '总成本=付费成本');
 });
 
-test('gpd=0：无生成，无计费', () => {
-  const r = calcRank(200, 0, 50, 30, 0.0005);
-  assert.strictEqual(r.genMonth, 0, '无生成');
-  assert.strictEqual(r.billable, 0, '无计费');
-  assert.strictEqual(r.fullyCovered, false, 'genMonth=0 不算"被覆盖"');
+test('gpd=0：无真实使用，但免费发放仍产生成本', () => {
+  const cpg = 0.001;
+  const r = calcRank(200, 0, 50, 30, cpg);
+  assert.strictEqual(r.usedMonth, 0, '无使用');
+  assert.strictEqual(r.paidQty, 0, '无付费');
+  assert.ok(approx(r.freeCost, 200 * 50 * cpg), '免费发放仍产生成本');
+  assert.ok(approx(r.totalCost, 200 * 50 * cpg), '总成本=免费成本');
 });
 
 test('空串/非数字输入：兜底为 0，不报错', () => {
   const r = calcRank('', 'abc', null, undefined, NaN);
-  assert.strictEqual(r.genMonth, 0);
-  assert.strictEqual(r.billable, 0);
-  assert.strictEqual(r.cost, 0);
-  assert.ok(isFinite(r.cost), '不应出现 NaN');
+  assert.strictEqual(r.freeGrant, 0);
+  assert.strictEqual(r.usedMonth, 0);
+  assert.strictEqual(r.paidQty, 0);
+  assert.strictEqual(r.totalCost, 0);
+  assert.ok(isFinite(r.totalCost), '不应出现 NaN');
 });
 
 test('小数输入：按输入值计算，不强制取整', () => {
-  // gpd=2.5, days=30 → 人均 75；free=50 → 人均计费 25
-  const r = calcRank(10, 2.5, 50, 30, 0.002);
-  assert.strictEqual(r.billable, 10 * 25, '应支持小数 gpd 计算');
-  assert.ok(approx(r.cost, 250 * 0.002), '成本应正确');
+  // gpd=2.5, days=30 → 人均使用 75；free=50 → 人均付费 25
+  const cpg = 0.002;
+  const r = calcRank(10, 2.5, 50, 30, cpg);
+  assert.strictEqual(r.paidQty, 10 * 25, '应支持小数 gpd 计算付费');
+  assert.ok(approx(r.totalCost, (10 * 50 + 10 * 25) * cpg), '总成本正确');
 });
 
 // ========== 合计聚合一致性 ==========
-test('多段位聚合：含 free>200 段位时合计计费/成本正确', () => {
+test('多段位聚合：免费/使用/付费/总成本分别累加正确', () => {
   const rows = [
-    { users: 1000, gpd: 3,  free: 200 }, // 月生成 90000，免费 200000 → 计费 0
-    { users: 58,   gpd: 12, free: 200 }, // 月生成 626400... 实为 58*12*30=20880，免费 58*200=11600 → 计费 9280
+    { users: 1000, gpd: 3,  free: 200 }, // 使用 90000，免费 200000，付费 0
+    { users: 58,   gpd: 12, free: 200 }, // 使用 20880，免费 11600，付费 9280
   ];
   const days = 30, cpg = 0.001;
-  let totalBillable = 0, totalCost = 0;
+  let tFree = 0, tUsed = 0, tPaid = 0, tCost = 0;
   rows.forEach(r => {
     const c = calcRank(r.users, r.gpd, r.free, days, cpg);
-    totalBillable += c.billable;
-    totalCost += c.cost;
+    tFree += c.freeGrant; tUsed += c.usedMonth; tPaid += c.paidQty; tCost += c.totalCost;
   });
-  const expectBillable = 0 + (58 * 12 * 30 - 58 * 200);
-  assert.strictEqual(totalBillable, expectBillable, '合计计费次数应正确');
-  assert.ok(approx(totalCost, expectBillable * cpg), '合计成本应正确');
-  assert.ok(totalBillable > 0, '存在高 gpd 段位时合计计费应 > 0');
+  assert.strictEqual(tFree, 1000 * 200 + 58 * 200, '合计免费发放');
+  assert.strictEqual(tUsed, 1000 * 90 + 58 * 360, '合计真实使用');
+  assert.strictEqual(tPaid, 0 + (58 * 360 - 58 * 200), '合计付费次数');
+  assert.ok(approx(tCost, (tFree + tPaid) * cpg), '合计总成本 = (免费发放+付费)×单次成本');
 });
 
 // ---- 结果汇总 ----
 console.log('\n通过 ' + passed + ' 项，失败 ' + failed + ' 项。');
 if (failed > 0) process.exit(1);
-console.log('\u2705 所有计费逻辑测试通过：free 输入任意大小（含 >200）计算均正确。');
+console.log('\u2705 所有计费逻辑测试通过：免费发放/真实使用/付费/成本四要素计算均正确。');

@@ -84,8 +84,10 @@
   }
   input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
   input[readonly] { color: var(--accent); font-weight:600; background: var(--panel-2); }
-  /* 计费为 0 的「免费覆盖」说明标记（可 hover 查看原因） */
-  .cover-tag { font-size:10px; color:var(--muted-2); margin-left:4px; border-bottom:1px dotted var(--muted-2); cursor:help; }
+  /* 表格数据列配色：免费发放=绿，真实使用=紫，付费=蓝 */
+  td.num-free { color: var(--green); font-weight:600; }
+  td.num-used { color: var(--purple); font-weight:600; }
+  td.num-paid { color: var(--accent); font-weight:600; }
   .row { display:flex; gap: 12px; align-items:center; }
   .row > input { flex:1; }
 
@@ -293,14 +295,14 @@
             <div class="sub">百万 token 折后折算</div>
           </div>
           <div class="kpi k2">
-            <div class="label" id="kpiGenLabel">月生成次数（周活口径）</div>
+            <div class="label" id="kpiGenLabel">月真实使用次数（周活口径）</div>
             <div class="value purple" id="kpiGenMonth">—</div>
             <div class="sub">活跃人数 × 人均 × 天数</div>
           </div>
           <div class="kpi k3">
-            <div class="label">免费额度覆盖次数</div>
+            <div class="label">每月免费发放次数</div>
             <div class="value green" id="kpiFree">—</div>
-            <div class="sub">不产生付费成本</div>
+            <div class="sub">官方一定发放 · 必然占用预算</div>
           </div>
         </div>
         <div class="budget-grid">
@@ -332,7 +334,9 @@
                 <th id="thWeek">周活人数</th>
                 <th>人均次/天</th>
                 <th>每月免费次数</th>
-                <th>月计费次数</th>
+                <th>免费发放次数</th>
+                <th>真实使用次数</th>
+                <th>付费次数</th>
                 <th>月成本 (元)</th>
                 <th>占总预算</th>
               </tr>
@@ -345,14 +349,16 @@
                 <td id="sumWeek" class="cellWeek">—</td>
                 <td>—</td>
                 <td>—</td>
-                <td id="sumBillable">—</td>
+                <td id="sumFreeGrant">—</td>
+                <td id="sumUsed">—</td>
+                <td id="sumPaid">—</td>
                 <td id="sumCost">—</td>
                 <td>100%</td>
               </tr>
             </tfoot>
           </table>
         </div>
-        <div class="note" id="tierNote">提示：预算消耗 =（人均次/天 × 天数 − 每月免费次数）× 人数 × 单次成本。只有当「人均次/天 × 天数 &gt; 每月免费次数」时才产生计费。</div>
+        <div class="note" id="tierNote">说明：<b>免费发放次数</b> = 人数 × 每月免费次数（官方一定发放，必然产生成本）；<b>真实使用次数</b> = 人数 × 人均次/天 × 天数；<b>付费次数</b> = 真实使用 − 免费发放（超出免费部分由用户付费）；<b>月成本</b> = 免费成本 + 付费成本。</div>
       </div>
 
       <div class="section-gap"></div>
@@ -494,7 +500,9 @@
         <td class="cellWeek">${fmtInt(r.week)}</td>
         <td><input type="number" data-i="${i}" data-k="gpd" value="${r.gpd}"></td>
         <td><input type="number" data-i="${i}" data-k="free" value="${r.free}"></td>
-        <td id="billable${i}">—</td>
+        <td id="freeGrant${i}" class="num-free">—</td>
+        <td id="used${i}" class="num-used">—</td>
+        <td id="paid${i}" class="num-paid">—</td>
         <td id="cost${i}">—</td>
         <td>
           <div class="barcell">
@@ -526,22 +534,32 @@
   });
 
   // ===== 核心计费逻辑（纯函数，可独立单元测试）=====
-  // 单段位月度计费计算：不限制 free/gpd 大小，直接按输入值计算。
-  // 当「人均月生成次数(gpd×monthDays) ≤ 每月免费次数(free)」时，免费额度覆盖全部生成，
-  // billable 自然为 0（这是模型的正确结果，并非异常）。
+  // 单段位月度计费计算（不限制输入大小，直接按值计算）。
+  //
+  // 业务模型（清晰、无歧义）：
+  //   1. 免费发放次数 freeGrant = 人数 × 每月免费次数
+  //      —— 官方每月一定发放的免费额度，无论用不用完都视为「必然占用」的成本。
+  //   2. 真实使用次数 usedMonth = 人数 × 人均次/天 × 天数
+  //      —— 用户实际生成（消耗）的次数。
+  //   3. 免费成本 freeCost = 免费发放次数 × 单次成本
+  //      —— 免费发放即官方买单，是一定会产生的预估预算（底线成本）。
+  //   4. 付费次数 paidQty = max(0, 真实使用 − 免费发放)
+  //      —— 用户使用量超出免费额度的部分，由用户付费。
+  //   5. 付费成本 paidCost = 付费次数 × 单次成本（这部分对应付费收入）。
+  //   6. 总成本 totalCost = 免费成本 + 付费成本。
   function calcRank(users, gpd, free, monthDays, costPerGen){
     users = Number(users) || 0;
     gpd = Number(gpd) || 0;
     free = Number(free) || 0;
     monthDays = Number(monthDays) || 0;
     costPerGen = Number(costPerGen) || 0;
-    const genMonth = users * gpd * monthDays;   // 月生成总次数
-    const freeTotal = users * free;             // 月免费总额度
-    const freeUsed = Math.min(genMonth, freeTotal);
-    const billable = Math.max(0, genMonth - freeTotal); // 月计费次数（免费覆盖时为 0）
-    const cost = billable * costPerGen;                 // 月成本
-    const fullyCovered = genMonth > 0 && billable === 0; // 是否被免费额度完全覆盖
-    return { genMonth, freeTotal, freeUsed, billable, cost, fullyCovered };
+    const freeGrant = users * free;                 // 1. 每月免费发放次数（必然占用）
+    const usedMonth = users * gpd * monthDays;       // 2. 每月真实使用次数
+    const freeCost  = freeGrant * costPerGen;        // 3. 免费成本（一定产生的预估预算）
+    const paidQty   = Math.max(0, usedMonth - freeGrant); // 4. 付费次数
+    const paidCost  = paidQty * costPerGen;          // 5. 付费成本
+    const totalCost = freeCost + paidCost;           // 6. 总成本
+    return { freeGrant, usedMonth, freeCost, paidQty, paidCost, totalCost };
   }
   // 暴露到全局，便于在 Node/浏览器测试环境中直接引用
   if (typeof window !== 'undefined') window.calcRank = calcRank;
@@ -572,32 +590,28 @@
     $('thWeek').innerHTML  = '周活人数'   + ( isWeek ? '<span class="col-tag">计算中</span>' : '');
 
     // 逐段位计算（每段位使用各自的人均次/天 r.gpd）
-    let totalGenMonth=0, freeCoveredMonth=0, billableMonth=0, sumTotal=0, sumWeek=0;
+    let totalFreeGrant=0, totalUsed=0, totalPaidQty=0, totalFreeCost=0, totalPaidCost=0, sumTotal=0, sumWeek=0;
     const perRank = ranks.map((r,i)=>{
       const users = baseMode==='week' ? r.week : r.total;
       // 使用统一的纯函数计算，保证页面行为与单元测试一致
       const c = calcRank(users, r.gpd, r.free, monthDays, costPerGen);
-      totalGenMonth += c.genMonth;
-      freeCoveredMonth += c.freeUsed;
-      billableMonth += c.billable;
+      totalFreeGrant += c.freeGrant;
+      totalUsed      += c.usedMonth;
+      totalPaidQty   += c.paidQty;
+      totalFreeCost  += c.freeCost;
+      totalPaidCost  += c.paidCost;
       sumTotal += r.total; sumWeek += r.week;
-      return { billable:c.billable, cost:c.cost, genPerUser:(Number(r.gpd)||0)*monthDays, free:r.free, fullyCovered:c.fullyCovered };
+      return { freeGrant:c.freeGrant, usedMonth:c.usedMonth, paidQty:c.paidQty, totalCost:c.totalCost };
     });
 
-    const budMonth = billableMonth * costPerGen;
+    const budMonth = totalFreeCost + totalPaidCost;  // 月总成本 = 免费成本 + 付费成本
     // 填充每段位
-    let coveredCount = 0;
     perRank.forEach((p,i)=>{
-      const pct = budMonth>0 ? p.cost/budMonth*100 : 0;
-      $('billable'+i).textContent = fmtInt(p.billable);
-      if(p.fullyCovered){
-        coveredCount++;
-        const genPerUser = p.genPerUser;       // 人均月生成
-        $('cost'+i).innerHTML = `<span style="color:var(--green)">¥0.00</span>`
-          + `<span class="cover-tag" title="人均月生成 ${fmtInt(genPerUser)} 次 ≤ 每月免费 ${fmtInt(p.free)} 次，免费额度已覆盖全部生成，故计费为 0（计算正确，非异常）。如需产生计费，请调高「人均次/天」或调低「每月免费次数」。">免费覆盖 ⓘ</span>`;
-      } else {
-        $('cost'+i).textContent = yuan(p.cost);
-      }
+      const pct = budMonth>0 ? p.totalCost/budMonth*100 : 0;
+      $('freeGrant'+i).textContent = fmtInt(p.freeGrant);
+      $('used'+i).textContent = fmtInt(p.usedMonth);
+      $('paid'+i).textContent = fmtInt(p.paidQty);
+      $('cost'+i).textContent = yuan(p.totalCost);
       $('bar'+i).style.width = Math.min(100,pct)+'%';
       $('pct'+i).textContent = fmt(pct,1)+'%';
     });
@@ -605,38 +619,43 @@
     // 合计行
     $('sumTotal').textContent = fmtInt(sumTotal);
     $('sumWeek').textContent = fmtInt(sumWeek);
-    $('sumBillable').textContent = fmtInt(billableMonth);
+    $('sumFreeGrant').textContent = fmtInt(totalFreeGrant);
+    $('sumUsed').textContent = fmtInt(totalUsed);
+    $('sumPaid').textContent = fmtInt(totalPaidQty);
     $('sumCost').textContent = yuan(budMonth);
 
     // KPI + 预算
-    $('kpiGenMonth').textContent = fmtInt(totalGenMonth);
-    $('kpiGenLabel').textContent = '月生成次数（' + (isWeek ? '周活' : '全量') + '口径）';
-    $('kpiFree').textContent = fmtInt(freeCoveredMonth);
+    $('kpiGenMonth').textContent = fmtInt(totalUsed);
+    $('kpiGenLabel').textContent = '月真实使用次数（' + (isWeek ? '周活' : '全量') + '口径）';
+    $('kpiFree').textContent = fmtInt(totalFreeGrant);
     const budDay = budMonth/monthDays, budWeek = budDay*7;
     $('budMonth').textContent = fmt(budMonth,0);
     $('budDay').textContent = fmt(budDay,0);
     $('budWeek').textContent = fmt(budWeek,0);
 
-    const allInMonth = totalGenMonth * costPerGen;
     const baseLabel = baseMode==='week' ? '周活人数' : '当前段位人数';
     $('budgetNote').innerHTML =
-      `当前以 <b>${baseLabel}</b> 为口径。免费额度覆盖 <b class="green">${fmtInt(freeCoveredMonth)}</b> 次，` +
-      `实际付费生成 <b class="accent">${fmtInt(billableMonth)}</b> 次。` +
-      `若不设免费额度，月成本上限 <b class="warn">${yuan(allInMonth)}</b>，` +
-      `免费策略每月节省 <b class="green">${yuan(allInMonth-budMonth)}</b>。`;
+      `当前以 <b>${baseLabel}</b> 为口径。每月免费发放 <b class="green">${fmtInt(totalFreeGrant)}</b> 次` +
+      `（必然占用预算 <b class="warn">${yuan(totalFreeCost)}</b>）；` +
+      `真实使用 <b class="purple">${fmtInt(totalUsed)}</b> 次，其中付费 <b class="accent">${fmtInt(totalPaidQty)}</b> 次` +
+      `（付费成本 <b class="accent">${yuan(totalPaidCost)}</b>）。` +
+      `<b>月总成本 = 免费成本 + 付费成本 = ${yuan(budMonth)}</b>。`;
 
     // 找出预算占比最高段位
     let maxIdx=0, maxCost=-1;
-    perRank.forEach((p,i)=>{ if(p.cost>maxCost){maxCost=p.cost;maxIdx=i;} });
-    const coverTip = coveredCount>0
-      ? ` <b class="warn">注意：有 ${coveredCount} 个段位「人均次/天 × ${monthDays}天 ≤ 每月免费次数」，计费为 0（标"免费覆盖"）</b>，如需其产生预算请调高人均次/天或调低免费次数。`
-      : '';
+    perRank.forEach((p,i)=>{ if(p.totalCost>maxCost){maxCost=p.totalCost;maxIdx=i;} });
     if(maxCost>0){
       const pct = budMonth>0? maxCost/budMonth*100:0;
-      $('tierNote').innerHTML = `预算消耗最高的是 <b style="color:${ranks[maxIdx].color}">${ranks[maxIdx].icon} ${ranks[maxIdx].name}</b> 段位，` +
-        `占总预算 <b class="accent">${fmt(pct,1)}%</b>（${yuan(maxCost)}/月）。<b>计费触发条件：人均次/天 × 天数 &gt; 每月免费次数</b>，二者均可在表格中编辑。` + coverTip;
+      $('tierNote').innerHTML = `<b>免费发放次数</b> = 人数 × 每月免费次数（官方一定发放，必然产生成本）；` +
+        `<b>真实使用次数</b> = 人数 × 人均次/天 × 天数；` +
+        `<b>付费次数</b> = 真实使用 − 免费发放（超出免费部分由用户付费）；` +
+        `<b>月成本</b> = 免费成本 + 付费成本。` +
+        `<br>预算消耗最高的是 <b style="color:${ranks[maxIdx].color}">${ranks[maxIdx].icon} ${ranks[maxIdx].name}</b> 段位，` +
+        `占总成本 <b class="accent">${fmt(pct,1)}%</b>（${yuan(maxCost)}/月）。`;
     } else {
-      $('tierNote').innerHTML = `所有段位计费均为 0 —— 因为每个段位「人均次/天 × ${monthDays}天 ≤ 每月免费次数」，免费额度完全覆盖了生成量。请调高「人均次/天」或调低「每月免费次数」让预算产生。`;
+      $('tierNote').innerHTML = `<b>免费发放次数</b> = 人数 × 每月免费次数（官方一定发放，必然产生成本）；` +
+        `<b>真实使用次数</b> = 人数 × 人均次/天 × 天数；` +
+        `<b>付费次数</b> = 真实使用 − 免费发放；<b>月成本</b> = 免费成本 + 付费成本。`;
     }
 
     // ===== 定价回本 =====
